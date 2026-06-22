@@ -43,7 +43,7 @@ npm run dev
 The application will be available at http://localhost:3000
 
 ## Project Structure
-/client: Next.js application (Presentation Tier)
-/server: Node.js API & Image Processing (Logic Tier)
-/server/database.db: SQLite database (Data Tier)
-/server/uploads: Physical storage for project photography
+* /frontend: Next.js application (Presentation Tier)
+* /server: Node.js API & Image Processing (Logic Tier)
+* /server/database.db: SQLite database (Data Tier)
+* /server/uploads: Physical storage for project photography
