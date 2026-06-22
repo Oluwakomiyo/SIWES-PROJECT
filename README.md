@@ -47,3 +47,6 @@ The application will be available at http://localhost:3000
 * /server: Node.js API & Image Processing (Logic Tier)
 * /server/database.db: SQLite database (Data Tier)
 * /server/uploads: Physical storage for project photography
+
+## 👨‍💻 Author
+OLADEINDE FRANKLYN OLUWAKOMIYO
