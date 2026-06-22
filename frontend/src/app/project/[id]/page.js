@@ -1,0 +1,229 @@
+"use client";
+import { useEffect, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+    ArrowLeft, Trash2, Calendar, MapPin, Play, Star, X,
+    User, DollarSign, Briefcase, Landmark, Edit3, Plus, Upload, Save, RotateCcw
+} from 'lucide-react';
+import Link from 'next/link';
+
+export default function ProjectDetails() {
+    const { id } = useParams();
+    const router = useRouter();
+
+    // 1. ALL DATA STATES
+    const [project, setProject] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [isEditing, setIsEditing] = useState(false); // Controls the Popup
+    const [editData, setEditData] = useState(null);    // Holds the form data
+    const [selectedImage, setSelectedImage] = useState(null);
+    const [showUpload, setShowUpload] = useState(false);
+    const [newFiles, setNewFiles] = useState([]);
+    const [uploading, setUploading] = useState(false);
+
+    // 2. FETCH DATA ONCE
+    useEffect(() => {
+        const fetchProject = async () => {
+            try {
+                const res = await fetch(`http://localhost:5000/api/projects/${id}`);
+                const data = await res.json();
+                setProject(data);
+                // Pre-fill the edit form so it is ready instantly
+                setEditData({ ...data, is_featured: data.is_featured === 1 });
+                setLoading(false);
+            } catch (err) { console.error(err); setLoading(false); }
+        };
+        fetchProject();
+    }, [id]);
+
+    // 3. SAVE EDITS FUNCTION
+    const handleUpdate = async (e) => {
+        if (e) e.preventDefault();
+        try {
+            const res = await fetch(`http://localhost:5000/api/projects/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(editData)
+            });
+            if (res.ok) {
+                // Update the main page text with what we just typed
+                setProject({ ...project, ...editData, is_featured: editData.is_featured ? 1 : 0 });
+                setIsEditing(false); // Close the popup
+            }
+        } catch (error) { alert("Update failed"); }
+    };
+
+    // 4. MEDIA FUNCTIONS (Upload/Delete)
+    const handleAddMedia = async () => {
+        setUploading(true);
+        const fd = new FormData();
+        for (let f of newFiles) fd.append('images', f);
+        await fetch(`http://localhost:5000/api/projects/${id}/upload`, { method: 'POST', body: fd });
+        const res = await fetch(`http://localhost:5000/api/projects/${id}`);
+        setProject(await res.json());
+        setNewFiles([]); setShowUpload(false); setUploading(false);
+    };
+
+    const deleteImage = async (e, imageId) => {
+        e.stopPropagation();
+        if (!confirm("Delete this image?")) return;
+        await fetch(`http://localhost:5000/api/images/${imageId}`, { method: 'DELETE' });
+        setProject({ ...project, images: project.images.filter(img => img.id !== imageId) });
+    };
+
+    if (loading) return <div className="p-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-[0.3em]">Loading...</div>;
+    if (!project) return <div className="p-20 text-center">Project not found</div>;
+
+    return (
+        <div className="min-h-screen bg-slate-50 p-4 md:p-8 text-slate-900">
+            <div className="max-w-6xl mx-auto">
+
+                {/* TOP NAVIGATION */}
+                <div className="flex justify-between items-center mb-8">
+                    <Link href="/gallery" className="flex items-center text-blue-600 hover:underline font-bold text-xs uppercase tracking-widest">
+                        <ArrowLeft className="w-4 h-4 mr-2" /> Back
+                    </Link>
+                    <div className="flex gap-3">
+                        {/* THE BUTTON THAT OPENS THE POPUP (No Reloads) */}
+                        <button
+                            type="button"
+                            onClick={() => setIsEditing(true)}
+                            className="bg-white text-slate-600 px-6 py-3 rounded-xl font-bold flex items-center gap-2 border border-slate-200 hover:bg-slate-50 transition-all text-sm shadow-sm"
+                        >
+                            <Edit3 size={18} /> Edit Details
+                        </button>
+                        <Link href={`/slideshow?projectId=${id}`} className="bg-blue-600 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-3 hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all text-sm">
+                            <Play size={18} fill="currentColor" /> Play Slideshow
+                        </Link>
+                    </div>
+                </div>
+
+                {/* PROJECT DATA CARD */}
+                <div className="bg-white rounded-[1rem] border border-slate-200 shadow-sm overflow-hidden mb-12">
+                    <div className="p-10 border-b border-slate-100 bg-white">
+                        <div className="flex items-center gap-3 mb-4">
+                            <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded text-[10px] font-black border border-slate-200 uppercase tracking-widest">{project.category}</span>
+                            {project.is_featured === 1 && <span className="bg-amber-500 text-white px-3 py-1 rounded text-[10px] font-black uppercase tracking-widest flex items-center gap-1 shadow-sm"><Star size={10} fill="currentColor" /> Featured</span>}
+                        </div>
+                        <h1 className="text-4xl md:text-5xl font-extrabold tracking-tighter mb-4 text-slate-900">{project.name}</h1>
+                        <p className="flex items-center text-slate-400 gap-2 text-lg italic"><MapPin size={18} className="text-blue-500" /> {project.location}</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-slate-100 border-b border-slate-100">
+                        <InfoBox icon={<User size={14} />} label="Project Manager" value={project.project_manager} />
+                        <InfoBox icon={<DollarSign size={14} />} label="Project Value" value={project.project_value ? `$${project.project_value}`
+                            : "---"} color="text-blue-600" />
+                        <InfoBox icon={<Briefcase size={14} />} label="Client Name" value={project.client_name} />
+                        <InfoBox icon={<Landmark size={14} />} label="Partner" value={project.partner} />
+                    </div>
+
+                    <div className="p-10">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Description</p>
+                        <p className="text-slate-600 leading-relaxed text-lg max-w-4xl whitespace-pre-line mb-8">{project.description || "No description."}</p>
+                        <div className="inline-flex items-center gap-4 bg-slate-50 p-5 rounded-2xl border border-slate-100">
+                            <Calendar className="text-blue-500" size={20} />
+                            <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Completion</p><p className="text-lg font-bold">{project.completion_date || "Not Set"}</p></div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* LARGE IMAGE GRID (3 COLUMNS) */}
+                <div className="mb-20">
+                    <div className="flex justify-between items-end mb-8">
+                        <h2 className="text-2xl font-extrabold tracking-tight text-slate-900">Media Assets <span className="text-sm font-bold bg-blue-50 px-3 py-1 rounded-full text-blue-600 ml-2">{project.images?.length || 0} assets</span></h2>
+                        <button onClick={() => setShowUpload(!showUpload)} className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all ${showUpload ? 'bg-slate-200 text-slate-600' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>{showUpload ? <X size={16} /> : <Plus size={16} />} {showUpload ? 'Cancel' : 'Add Media'}</button>
+                    </div>
+
+                    {showUpload && (
+                        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-10 bg-blue-50 border-2 border-dashed border-blue-200 rounded-[2.5rem] p-12 flex flex-col md:flex-row items-center gap-10">
+                            <div className="flex-1"><h4 className="font-bold text-blue-900 text-xl">Upload New Assets</h4><p className="text-blue-700/60 font-medium">Add high-resolution visuals to this project.</p></div>
+                            <input type="file" multiple accept="image/*" id="extra" className="hidden" onChange={(e) => setNewFiles(e.target.files)} />
+                            <label htmlFor="extra" className="bg-white px-10 py-5 rounded-2xl border border-blue-200 text-blue-600 font-bold cursor-pointer hover:shadow-md transition-all text-sm">{newFiles.length > 0 ? `${newFiles.length} files selected` : 'Browse'}</label>
+                            <button onClick={handleAddMedia} disabled={!newFiles.length || uploading} className="bg-blue-600 text-white px-12 py-5 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-blue-200 transition-all">{uploading ? 'Processing...' : 'Push Now'}</button>
+                        </motion.div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        {project.images?.map(img => (
+                            <div key={img.id} onClick={() => setSelectedImage(img.file_path)} className="group bg-white rounded-xl overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-all relative">
+                                <img src={`http://localhost:5000/uploads/thumb_${img.file_path}`} className="w-full h-full object-cover group-hover:scale-110 transition-all duration-1000" />
+                                <button onClick={(e) => deleteImage(e, img.id)} className="absolute top-3 right-3 z-30 p-2 bg-red-600 text-white rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-all duration-300 transform hover:scale-110"><Trash2 size={18} /></button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* --- POPUP EDIT MODAL (Fixed and Stationary) --- */}
+                <AnimatePresence>
+                    {isEditing && (
+                        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+                            {/* Dark Blurred Backdrop */}
+                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsEditing(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" />
+
+                            {/* Stationary Form Card */}
+                            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-2xl bg-white rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                                <div className="p-8 border-b bg-slate-50/50 flex justify-between items-center">
+                                    <div><h2 className="text-2xl font-black tracking-tight text-slate-900">Edit Project Details</h2><p className="text-[10px] text-blue-600 font-black uppercase tracking-widest mt-1">Project Ref: {id}</p></div>
+                                    <button onClick={() => setIsEditing(false)} className="p-3 bg-white hover:bg-red-50 rounded-2xl text-slate-400 hover:text-red-500 border border-slate-100"><X size={20} /></button>
+                                </div>
+                                <form onSubmit={handleUpdate} className="flex-1 overflow-y-auto p-10 space-y-6">
+                                    <div className="grid grid-cols-2 gap-6">
+                                        <EditField label="Project Name" value={editData?.name} onChange={v => setEditData({ ...editData, name: v })} />
+                                        <div><label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Category</label>
+                                            <select value={editData?.category} onChange={e => setEditData({ ...editData, category: e.target.value })} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none">
+                                                {['Residential', 'Commercial', 'Industrial', 'Healthcare', 'Infrastructure', 'Premium', 'Landmark', 'Recently Completed', 'Award Winning'].map(c => <option key={c} value={c}>{c}</option>)}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-6">
+                                        <EditField label="Manager" value={editData?.project_manager} onChange={v => setEditData({ ...editData, project_manager: v })} />
+                                        <EditField label="Value" value={editData?.project_value} onChange={v => setEditData({ ...editData, project_value: v })} />
+                                        <EditField label="Location" value={editData?.location} onChange={v => setEditData({ ...editData, location: v })} />
+                                        <EditField label="Completion Date" type="date" value={editData?.completion_date} onChange={v => setEditData({ ...editData, completion_date: v })} />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-6">
+                                        <EditField label="Client Name" value={editData?.client_name} onChange={v => setEditData({ ...editData, client_name: v })} />
+                                        <EditField label="Partner" value={editData?.partner} onChange={v => setEditData({ ...editData, partner: v })} />
+                                    </div>
+                                    <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Description</label><textarea rows="3" value={editData?.description} onChange={e => setEditData({ ...editData, description: e.target.value })} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none resize-none" /></div>
+                                    <div onClick={() => setEditData({ ...editData, is_featured: !editData.is_featured })} className={`p-4 rounded-2xl border-2 transition-all cursor-pointer select-none active:scale-[0.99] flex justify-between items-center ${editData?.is_featured ? 'bg-amber-50 border-amber-500' : 'bg-slate-50 border-transparent'}`}>
+                                        <div className="flex items-center gap-3"><Star size={20} fill={editData?.is_featured ? "#f59e0b" : "none"} className={editData?.is_featured ? "text-amber-500" : "text-slate-400"} /><span className="text-sm font-bold text-amber-900">Featured Status</span></div>
+                                        <div className={`w-10 h-5 rounded-full relative transition-colors ${editData?.is_featured ? 'bg-amber-500' : 'bg-slate-300'}`}><div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${editData?.is_featured ? 'right-1' : 'left-1'}`} /></div>
+                                    </div>
+                                </form>
+                                <div className="p-8 border-t bg-slate-50 flex gap-4">
+                                    <button type="button" onClick={() => setIsEditing(false)} className="flex-1 py-4 text-slate-500 font-black uppercase text-[10px] tracking-widest hover:bg-white rounded-2xl transition-all border border-transparent">Discard</button>
+                                    <button onClick={handleUpdate} className="flex-[2] py-4 bg-blue-600 text-white font-black uppercase text-[10px] tracking-widest rounded-2xl hover:bg-blue-700 shadow-xl transition-all flex items-center justify-center gap-2"><Save size={16} /> Save Specifications</button>
+                                </div>
+                            </motion.div>
+                        </div>
+                    )}
+                </AnimatePresence>
+
+                {/* --- LIGHTBOX (IMAGE VIEWER) --- */}
+                <AnimatePresence>
+                    {selectedImage && (
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[2000] bg-slate-900/95 backdrop-blur-md flex items-center justify-center p-12" onClick={() => setSelectedImage(null)}>
+                            <button className="absolute top-8 right-8 text-white bg-white/10 p-4 rounded-full hover:bg-red-500 transition-all"><X size={32} /></button>
+                            <motion.img initial={{ scale: 0.9 }} animate={{ scale: 1 }} src={`http://localhost:5000/uploads/${selectedImage}`} className="max-w-full max-h-full rounded-2xl shadow-2xl object-contain" onClick={e => e.stopPropagation()} />
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
+        </div>
+    );
+}
+
+// HELPER COMPONENTS
+function InfoBox({ label, value, color = "text-slate-800", icon }) {
+    return (
+        <div className="p-8"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">{icon} {label}</p><p className={`text-xl font-bold tracking-tight truncate ${color}`}>{value || "---"}</p></div>
+    );
+}
+
+function EditField({ label, value, onChange, type = "text" }) {
+    return (
+        <div className="flex flex-col"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">{label}</label><input type={type} value={value || ""} onChange={e => onChange(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-sm" /></div>
+    );
+}
