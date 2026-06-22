@@ -1,0 +1,349 @@
+const express = require('express');
+const cors = require('cors');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const sharp = require('sharp');
+const crypto = require('crypto');
+const setupDatabase = require('./database');
+
+const app = express();
+const PORT = 5000;
+
+app.use(cors());
+app.use(express.json());
+
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+const upload = multer({ dest: 'uploads/temp/' });
+
+// Initialize Database and Start Server
+setupDatabase().then((db) => {
+    const logActivity = async (action, name) => {
+        await db.run(
+            'INSERT INTO activity_logs (action_type, project_name) VALUES (?, ?)',
+            [action, name]
+        );
+    };
+
+    // 1. Route to create a new project
+    app.post('/api/projects', async (req, res) => {
+        // Destructure every field from the frontend request
+        const {
+            name, description, category, location, client_name,
+            completion_date, is_featured, project_manager,
+            project_value, partner
+        } = req.body;
+
+        try {
+            const result = await db.run(
+                `INSERT INTO projects (
+                name, description, category, location, client_name, 
+                completion_date, is_featured, project_manager, 
+                project_value, partner
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    name, description, category, location, client_name,
+                    completion_date, is_featured ? 1 : 0, project_manager,
+                    project_value, partner
+                ]
+            );
+            await logActivity('PROJECT_CREATE', name);
+            res.status(201).json({ id: result.lastID });
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Route to update project details
+    app.put('/api/projects/:id', async (req, res) => {
+        const {
+            name, description, category, location, client_name,
+            completion_date, is_featured, project_manager,
+            project_value, partner
+        } = req.body;
+
+        const projectId = req.params.id;
+
+        try {
+            await db.run(
+                `UPDATE projects SET 
+                name = ?, description = ?, category = ?, location = ?, 
+                client_name = ?, completion_date = ?, is_featured = ?, 
+                project_manager = ?, project_value = ?, partner = ?
+             WHERE id = ?`,
+                [
+                    name, description, category, location, client_name,
+                    completion_date, is_featured ? 1 : 0, project_manager,
+                    project_value, partner, projectId
+                ]
+            );
+            res.json({ message: "Project updated successfully" });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // 2. Route to upload and optimize images for a project
+    app.post('/api/projects/:id/upload', upload.array('images', 20), async (req, res) => {
+        const projectId = req.params.id;
+        const files = req.files;
+
+        if (!files || files.length === 0) {
+            return res.status(400).send('No files uploaded.');
+        }
+
+        try {
+            const project = await db.get('SELECT name FROM projects WHERE id = ?', [req.params.id]);
+            if (!project) {
+                return res.status(404).json({
+                    error: 'Project not found'
+                });
+            }
+            const uploadPromises = files.map(async (file) => {
+                const fileName =
+                    `${Date.now()}-${crypto.randomUUID()}-${file.originalname.replace(/\s/g, '_')}`;
+                const fullPath = path.join(__dirname, 'uploads', fileName);
+                const thumbPath = path.join(__dirname, 'uploads', `thumb_${fileName}`);
+
+                // USE SHARP TO OPTIMIZE:
+                // High-res version (Max 1920px width for performance)
+                try {
+                    await sharp(file.path)
+                        .resize(1920, 1080, {
+                            fit: 'inside',
+                            withoutEnlargement: true
+                        })
+                        .toFile(fullPath);
+
+                    await sharp(file.path)
+                        .resize(400, 300)
+                        .toFile(thumbPath);
+                } finally {
+                    if (fs.existsSync(file.path)) {
+                        fs.unlinkSync(file.path);
+                    }
+                }
+
+                // Save the file path to the database
+                return db.run(
+                    `INSERT INTO images (project_id, file_path) VALUES (?, ?)`,
+                    [projectId, fileName]
+                );
+            });
+
+            await Promise.all(uploadPromises);
+            await logActivity(
+                'IMAGE_ADD',
+                `${files.length} image(s) uploaded to ${project.name}`
+            );
+            res.status(201).json({
+                success: true,
+                uploaded: files.length,
+                projectId,
+                message: 'Images uploaded and optimized successfully!'
+            });
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: "Image processing failed." });
+        }
+    });
+
+    // Route to delete a single image
+    app.delete('/api/images/:id', async (req, res) => {
+        const imageId = req.params.id;
+
+        try {
+            const image = await db.get(
+                `
+            SELECT
+                images.file_path,
+                projects.name AS project_name
+            FROM images
+            JOIN projects
+                ON projects.id = images.project_id
+            WHERE images.id = ?
+            `,
+                [imageId]
+            );
+
+            if (!image) {
+                return res.status(404).json({
+                    error: "Image not found"
+                });
+            }
+
+            const fullPath = path.join(
+                __dirname,
+                'uploads',
+                image.file_path
+            );
+
+            const thumbPath = path.join(
+                __dirname,
+                'uploads',
+                `thumb_${image.file_path}`
+            );
+
+            if (fs.existsSync(fullPath))
+                fs.unlinkSync(fullPath);
+
+            if (fs.existsSync(thumbPath))
+                fs.unlinkSync(thumbPath);
+
+            await db.run(
+                'DELETE FROM images WHERE id = ?',
+                [imageId]
+            );
+
+            await logActivity(
+                'IMAGE_DELETE',
+                `Image removed from ${image.project_name}`
+            );
+
+            res.json({
+                message: 'Image deleted successfully'
+            });
+        } catch (err) {
+            console.error(err);
+
+            res.status(500).json({
+                error: err.message
+            });
+        }
+    });
+
+    // New Route: Get a single project with ALL its images
+    app.get('/api/projects/:id', async (req, res) => {
+        try {
+            // Use * to ensure ALL columns (Manager, Value, Partner, etc.) are fetched
+            const project = await db.get('SELECT * FROM projects WHERE id = ?', [req.params.id]);
+            const images = await db.all('SELECT * FROM images WHERE project_id = ?', [req.params.id]);
+
+            if (!project) {
+                return res.status(404).json({ error: "Project not found" });
+            }
+
+            res.json({ ...project, images });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Route to delete a project and all its images
+    app.delete('/api/projects/:id', async (req, res) => {
+        const projectId = req.params.id;
+
+        try {
+            // Get project details for activity log
+            const project = await db.get(
+                'SELECT name FROM projects WHERE id = ?',
+                [projectId]
+            );
+
+            if (!project) {
+                return res.status(404).json({
+                    error: 'Project not found'
+                });
+            }
+
+            // 1. Get all image filenames for this project
+            const images = await db.all('SELECT file_path FROM images WHERE project_id = ?', [projectId]);
+
+            // 2. Delete physical files from the hard drive
+            images.forEach(img => {
+                const fullPath = path.join(__dirname, 'uploads', img.file_path);
+                const thumbPath = path.join(__dirname, 'uploads', `thumb_${img.file_path}`);
+
+                if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+                if (fs.existsSync(thumbPath)) fs.unlinkSync(thumbPath);
+            });
+
+            // 3. Delete from database (Images first, then Project)
+            await db.run('DELETE FROM images WHERE project_id = ?', [projectId]);
+            await db.run('DELETE FROM projects WHERE id = ?', [projectId]);
+
+            if (project) await logActivity('PROJECT_DELETE', project.name);
+            res.json({ message: "Project and associated files deleted successfully" });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // 3. Route to get all projects (for our gallery)
+    app.get('/api/projects', async (req, res) => {
+        const projects = await db.all(`
+        SELECT p.*, i.file_path as cover_image 
+        FROM projects p 
+        LEFT JOIN images i ON p.id = i.project_id 
+        GROUP BY p.id
+    `);
+        res.json(projects);
+    });
+
+    // Route for the Slideshow: Gets all images from all projects
+    app.get('/api/slideshow', async (req, res) => {
+        try {
+            // We JOIN images and projects to get both the file and the name
+            const images = await db.all(`
+            SELECT i.file_path, p.id as project_id, p.name as project_name, p.category, p.location
+            FROM images i
+            JOIN projects p ON i.project_id = p.id
+        `);
+            res.json(images);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // --- DASHBOARD STATS API ---
+    app.get('/api/stats', async (req, res) => {
+        try {
+            // 1. Get Totals from Database
+            const projectCount = await db.get('SELECT COUNT(*) as count FROM projects');
+            const assetCount = await db.get('SELECT COUNT(*) as count FROM images');
+            const featuredCount = await db.get('SELECT COUNT(*) as count FROM projects WHERE is_featured = 1');
+
+            // 2. Calculate Real Storage Usage (Scanning the uploads folder)
+            const uploadsDir = path.join(__dirname, 'uploads');
+            let totalSizeBytes = 0;
+
+            if (fs.existsSync(uploadsDir)) {
+                const files = fs.readdirSync(uploadsDir);
+                files.forEach(file => {
+                    const stats = fs.statSync(path.join(uploadsDir, file));
+                    if (stats.isFile()) totalSizeBytes += stats.size;
+                });
+            }
+
+            // Convert bytes to Megabytes for display
+            const storageMB = (totalSizeBytes / (1024 * 1024)).toFixed(2);
+
+            // 3. Get Recent Activity (The last 5 projects added)
+            const recentActivity = await db.all(`
+            SELECT action_type, project_name, timestamp 
+            FROM activity_logs 
+            ORDER BY id DESC LIMIT 8
+        `);
+
+            res.json({
+                projects: projectCount.count,
+                assets: assetCount.count,
+                featured: featuredCount.count,
+                storage: `${storageMB} MB`,
+                activity: recentActivity
+            });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Simple Route to test if it's working
+    app.get('/', (req, res) => {
+        res.send("Project Management API is running...");
+    });
+
+    app.listen(PORT, () => {
+        console.log(`Server is running on http://localhost:${PORT}`);
+    });
+});
