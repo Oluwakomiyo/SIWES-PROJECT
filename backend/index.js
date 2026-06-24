@@ -14,7 +14,14 @@ app.use(cors());
 app.use(express.json());
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-const upload = multer({ dest: 'uploads/temp/' });
+
+const uploadsDir = path.join(__dirname, 'uploads');
+const tempDir = path.join(uploadsDir, 'temp');
+
+fs.mkdirSync(uploadsDir, { recursive: true });
+fs.mkdirSync(tempDir, { recursive: true });
+
+const upload = multer({ dest: tempDir });
 
 // Initialize Database and Start Server
 setupDatabase().then((db) => {
@@ -31,7 +38,7 @@ setupDatabase().then((db) => {
         const {
             name, description, category, location, client_name,
             completion_date, is_featured, project_manager,
-            project_value, partner
+            project_value, partner, tags
         } = req.body;
 
         try {
@@ -39,12 +46,12 @@ setupDatabase().then((db) => {
                 `INSERT INTO projects (
                 name, description, category, location, client_name, 
                 completion_date, is_featured, project_manager, 
-                project_value, partner
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                project_value, partner, tags
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     name, description, category, location, client_name,
                     completion_date, is_featured ? 1 : 0, project_manager,
-                    project_value, partner
+                    project_value, partner, tags
                 ]
             );
             await logActivity('PROJECT_CREATE', name);
@@ -60,7 +67,7 @@ setupDatabase().then((db) => {
         const {
             name, description, category, location, client_name,
             completion_date, is_featured, project_manager,
-            project_value, partner
+            project_value, partner, tags
         } = req.body;
 
         const projectId = req.params.id;
@@ -70,12 +77,12 @@ setupDatabase().then((db) => {
                 `UPDATE projects SET 
                 name = ?, description = ?, category = ?, location = ?, 
                 client_name = ?, completion_date = ?, is_featured = ?, 
-                project_manager = ?, project_value = ?, partner = ?
+                project_manager = ?, project_value = ?, partner = ?, tags = ?
              WHERE id = ?`,
                 [
                     name, description, category, location, client_name,
                     completion_date, is_featured ? 1 : 0, project_manager,
-                    project_value, partner, projectId
+                    project_value, partner, tags, projectId
                 ]
             );
             res.json({ message: "Project updated successfully" });
@@ -100,9 +107,13 @@ setupDatabase().then((db) => {
                     error: 'Project not found'
                 });
             }
+
             const uploadPromises = files.map(async (file) => {
+                const baseName = path.parse(file.originalname).name
+                    .replace(/[^a-zA-Z0-9_-]/g, '_');
+
                 const fileName =
-                    `${Date.now()}-${crypto.randomUUID()}-${file.originalname.replace(/\s/g, '_')}`;
+                    `${Date.now()}-${crypto.randomUUID()}-${baseName}.jpg`;
                 const fullPath = path.join(__dirname, 'uploads', fileName);
                 const thumbPath = path.join(__dirname, 'uploads', `thumb_${fileName}`);
 
@@ -114,11 +125,23 @@ setupDatabase().then((db) => {
                             fit: 'inside',
                             withoutEnlargement: true
                         })
+                        .jpeg({
+                            quality: 80,
+                            mozjpeg: true
+                        })
                         .toFile(fullPath);
 
                     await sharp(file.path)
-                        .resize(400, 300)
+                        .resize(400, 300, {
+                            fit: 'inside',
+                            withoutEnlargement: true
+                        })
+                        .jpeg({
+                            quality: 80,
+                            mozjpeg: true
+                        })
                         .toFile(thumbPath);
+
                 } finally {
                     if (fs.existsSync(file.path)) {
                         fs.unlinkSync(file.path);
@@ -250,20 +273,51 @@ setupDatabase().then((db) => {
             // 1. Get all image filenames for this project
             const images = await db.all('SELECT file_path FROM images WHERE project_id = ?', [projectId]);
 
-            // 2. Delete physical files from the hard drive
-            images.forEach(img => {
-                const fullPath = path.join(__dirname, 'uploads', img.file_path);
-                const thumbPath = path.join(__dirname, 'uploads', `thumb_${img.file_path}`);
-
-                if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
-                if (fs.existsSync(thumbPath)) fs.unlinkSync(thumbPath);
-            });
 
             // 3. Delete from database (Images first, then Project)
-            await db.run('DELETE FROM images WHERE project_id = ?', [projectId]);
-            await db.run('DELETE FROM projects WHERE id = ?', [projectId]);
+            await db.exec('BEGIN TRANSACTION');
 
-            if (project) await logActivity('PROJECT_DELETE', project.name);
+            try {
+                await db.run(
+                    'DELETE FROM images WHERE project_id = ?',
+                    [projectId]
+                );
+
+                await db.run(
+                    'DELETE FROM projects WHERE id = ?',
+                    [projectId]
+                );
+
+                await db.run(
+                    'INSERT INTO activity_logs (action_type, project_name) VALUES (?, ?)',
+                    ['PROJECT_DELETE', project.name]
+                );
+
+                await db.exec('COMMIT');
+
+                // 2. Delete physical files from the hard drive
+                images.forEach(img => {
+                    const fullPath = path.join(__dirname, 'uploads', img.file_path);
+                    const thumbPath = path.join(__dirname, 'uploads', `thumb_${img.file_path}`);
+
+                    try {
+                        if (fs.existsSync(fullPath)) {
+                            fs.unlinkSync(fullPath);
+                        }
+
+                        if (fs.existsSync(thumbPath)) {
+                            fs.unlinkSync(thumbPath);
+                        }
+                    } catch (err) {
+                        console.error('Failed deleting image files:', err);
+                    }
+                });
+
+            } catch (err) {
+                await db.exec('ROLLBACK');
+                throw err;
+            }
+
             res.json({ message: "Project and associated files deleted successfully" });
         } catch (err) {
             res.status(500).json({ error: err.message });
@@ -273,10 +327,16 @@ setupDatabase().then((db) => {
     // 3. Route to get all projects (for our gallery)
     app.get('/api/projects', async (req, res) => {
         const projects = await db.all(`
-        SELECT p.*, i.file_path as cover_image 
-        FROM projects p 
-        LEFT JOIN images i ON p.id = i.project_id 
-        GROUP BY p.id
+        SELECT
+    p.*,
+    (
+        SELECT file_path
+        FROM images
+        WHERE project_id = p.id
+        ORDER BY id ASC
+        LIMIT 1
+    ) AS cover_image
+FROM projects p
     `);
         res.json(projects);
     });
@@ -345,5 +405,13 @@ setupDatabase().then((db) => {
 
     app.listen(PORT, () => {
         console.log(`Server is running on http://localhost:${PORT}`);
+    });
+
+    app.use((err, req, res, next) => {
+        console.error(err);
+
+        res.status(500).json({
+            error: 'Internal Server Error'
+        });
     });
 });

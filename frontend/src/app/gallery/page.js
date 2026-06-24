@@ -37,23 +37,29 @@ function GalleryContent() {
     // Multi-filter logic
     useEffect(() => {
         let result = [...projects];
+
         if (searchQuery) {
             const query = searchQuery.toLowerCase();
-            result = result.filter(p =>
-                p.name?.toLowerCase().includes(query) ||
-                p.location?.toLowerCase().includes(query)
-            );
-        }
-        if (selectedCategory !== "All Categories") result = result.filter(p => p.category === selectedCategory);
-        if (selectedYear !== "All Years") {
-            result = result.filter(p => new Date(p.completion_date).getFullYear().toString() === selectedYear);
+            result = result.filter(p => {
+                // Check Project Name
+                const inName = p.name?.toLowerCase().includes(query);
+                // Check Location
+                const inLocation = p.location?.toLowerCase().includes(query);
+                // Check Manager
+                const inManager = p.project_manager?.toLowerCase().includes(query);
+                // Check Client
+                const inClient = p.client_name?.toLowerCase().includes(query);
+                // Check Description
+                const inDesc = p.description?.toLowerCase().includes(query);
+                // Check Tags
+                const inTags = p.tags?.toLowerCase().includes(query);
+
+                // Return true if the query is found in ANY of these
+                return inName || inLocation || inManager || inClient || inDesc || inTags;
+            });
         }
 
-        // RESTORED: Featured Logic
-        if (isFeaturedOnly) {
-            result = result.filter(p => p.is_featured === 1);
-        }
-
+        // ... (Keep your Category, Year, and Featured filters below this)
         setFilteredProjects(result);
     }, [searchQuery, selectedCategory, selectedYear, isFeaturedOnly, projects]);
 
@@ -103,7 +109,7 @@ function GalleryContent() {
                                 type="text"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                placeholder="Search projects..."
+                                placeholder="Search by name, manager, description, or #tags..."
                                 className="w-full pl-10 pr-8 py-2 bg-slate-50 border border-slate-100 rounded-lg text-sm outline-none"
                             />
                         </div>
@@ -176,7 +182,17 @@ function GalleryContent() {
 
                             <Link href={`/project/${project.id}`}>
                                 <div className="relative aspect-[16/10] overflow-hidden cursor-pointer">
-                                    <img src={`http://localhost:5000/uploads/thumb_${project.cover_image}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                                    {project.cover_image ? (
+                                        <img
+                                            src={`http://localhost:5000/uploads/thumb_${project.cover_image}`}
+                                            alt={project.name}
+                                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                        />
+                                    ) : (
+                                        <div className="flex items-center justify-center w-full h-full bg-slate-100 text-slate-500 text-sm">
+                                            No image available for {project.name}
+                                        </div>
+                                    )}
                                     <div className="absolute top-3 left-3 bg-white/90 backdrop-blur px-2 py-0.5 rounded text-[9px] font-bold uppercase text-slate-800">
                                         {project.category}
                                     </div>
@@ -186,6 +202,19 @@ function GalleryContent() {
                             <div className="p-4">
                                 <h3 className="font-bold text-slate-900 text-base mb-0.5">{project.name}</h3>
                                 <p className="text-slate-500 text-xs mb-3 flex items-center gap-1"><MapPin size={12} /> {project.location}</p>
+                                {/* Tiny Tag Previews */}
+                                {project.tags && (
+                                    <div className="flex flex-wrap gap-1 mb-4">
+                                        {project.tags.split(',').slice(0, 3).map((tag, i) => (
+                                            <span key={i} className="text-[9px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded uppercase tracking-tighter">
+                                                {tag.trim()}
+                                            </span>
+                                        ))}
+                                        {project.tags.split(',').length > 3 && (
+                                            <span className="text-[9px] font-bold text-slate-300">+{project.tags.split(',').length - 3} more</span>
+                                        )}
+                                    </div>
+                                )}
                                 <Link href={`/project/${project.id}`}>
                                     <button className="w-full py-2 bg-slate-50 text-slate-700 rounded-lg border border-slate-100 hover:bg-slate-100 transition-colors text-xs font-bold">
                                         View Details

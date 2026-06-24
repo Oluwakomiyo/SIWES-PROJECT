@@ -21,6 +21,9 @@ export default function ProjectDetails() {
     const [showUpload, setShowUpload] = useState(false);
     const [newFiles, setNewFiles] = useState([]);
     const [uploading, setUploading] = useState(false);
+    const [editTagInput, setEditTagInput] = useState("");
+    const [editTagList, setEditTagList] = useState([]);
+    const [saving, setSaving] = useState(false);
 
     // 2. FETCH DATA ONCE
     useEffect(() => {
@@ -30,28 +33,58 @@ export default function ProjectDetails() {
                 const data = await res.json();
                 setProject(data);
                 // Pre-fill the edit form so it is ready instantly
+
                 setEditData({ ...data, is_featured: data.is_featured === 1 });
+                if (data.tags) {
+                    setEditTagList(data.tags.split(',').map(t => t.trim()).filter(t => t !== ""));
+                } else {
+                    setEditTagList([]);
+                }
+
                 setLoading(false);
             } catch (err) { console.error(err); setLoading(false); }
         };
         fetchProject();
     }, [id]);
 
+    const handleEditTagKeyDown = (e) => {
+        if (e.key === 'Enter' && editTagInput.trim()) {
+            e.preventDefault();
+            const tag = editTagInput.trim();
+            if (!editTagList.includes(tag)) {
+                setEditTagList([...editTagList, tag]);
+            }
+            setEditTagInput("");
+        }
+    };
+
+    const removeEditTag = (tagToRemove) => {
+        setEditTagList(editTagList.filter(t => t !== tagToRemove));
+    };
+
     // 3. SAVE EDITS FUNCTION
     const handleUpdate = async (e) => {
         if (e) e.preventDefault();
+        setSaving(true);
+
+        // Merge the tag list into the data we are sending
+        const dataWithTags = {
+            ...editData,
+            tags: editTagList.join(', ')
+        };
+
         try {
             const res = await fetch(`http://localhost:5000/api/projects/${id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(editData)
+                body: JSON.stringify(dataWithTags)
             });
             if (res.ok) {
-                // Update the main page text with what we just typed
-                setProject({ ...project, ...editData, is_featured: editData.is_featured ? 1 : 0 });
-                setIsEditing(false); // Close the popup
+                setProject({ ...project, ...dataWithTags, is_featured: editData.is_featured ? 1 : 0 });
+                setIsEditing(false);
             }
         } catch (error) { alert("Update failed"); }
+        setSaving(false);
     };
 
     // 4. MEDIA FUNCTIONS (Upload/Delete)
@@ -126,6 +159,23 @@ export default function ProjectDetails() {
                             <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Completion</p><p className="text-lg font-bold">{project.completion_date || "Not Set"}</p></div>
                         </div>
                     </div>
+
+                    {/* Inside your Project Details Card, below the description */}
+                    {/* DISCOVERY TAGS */}
+                    {project.tags && project.tags.trim() !== "" && (
+                        <div className="p-10">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Discovery Tags</p>
+                            <div className="flex flex-wrap gap-2">
+                                {project.tags.split(',').map((tag, index) => (
+                                    tag.trim() !== "" && (
+                                        <span key={index} className="px-4 py-2 bg-blue-50 text-blue-600 text-[11px] font-bold rounded-xl border border-blue-100">
+                                            #{tag.trim()}
+                                        </span>
+                                    )
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* LARGE IMAGE GRID (3 COLUMNS) */}
@@ -186,6 +236,39 @@ export default function ProjectDetails() {
                                         <EditField label="Client Name" value={editData?.client_name} onChange={v => setEditData({ ...editData, client_name: v })} />
                                         <EditField label="Partner" value={editData?.partner} onChange={v => setEditData({ ...editData, partner: v })} />
                                     </div>
+                                    {/* TAG EDITING SECTION */}
+                                    <div className="space-y-4 pt-4 border-t border-slate-100">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">
+                                            Discovery Tags
+                                        </label>
+                                        <div className="space-y-3">
+                                            <input
+                                                type="text"
+                                                placeholder="Type a new tag and press Enter..."
+                                                value={editTagInput}
+                                                onChange={(e) => setEditTagInput(e.target.value)}
+                                                onKeyDown={handleEditTagKeyDown}
+                                                className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 transition-all shadow-sm"
+                                            />
+                                            <div className="flex flex-wrap gap-2">
+                                                {editTagList.map((tag, index) => (
+                                                    <span
+                                                        key={index}
+                                                        className="flex items-center gap-2 bg-blue-50 text-blue-600 px-3 py-1.5 rounded-full text-xs font-bold border border-blue-100"
+                                                    >
+                                                        #{tag}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => removeEditTag(tag)}
+                                                            className="p-0.5 hover:bg-blue-200 rounded-full transition-colors"
+                                                        >
+                                                            <X size={12} />
+                                                        </button>
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
                                     <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Description</label><textarea rows="3" value={editData?.description} onChange={e => setEditData({ ...editData, description: e.target.value })} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none resize-none" /></div>
                                     <div onClick={() => setEditData({ ...editData, is_featured: !editData.is_featured })} className={`p-4 rounded-2xl border-2 transition-all cursor-pointer select-none active:scale-[0.99] flex justify-between items-center ${editData?.is_featured ? 'bg-amber-50 border-amber-500' : 'bg-slate-50 border-transparent'}`}>
                                         <div className="flex items-center gap-3"><Star size={20} fill={editData?.is_featured ? "#f59e0b" : "none"} className={editData?.is_featured ? "text-amber-500" : "text-slate-400"} /><span className="text-sm font-bold text-amber-900">Featured Status</span></div>
@@ -194,7 +277,7 @@ export default function ProjectDetails() {
                                 </form>
                                 <div className="p-8 border-t bg-slate-50 flex gap-4">
                                     <button type="button" onClick={() => setIsEditing(false)} className="flex-1 py-4 text-slate-500 font-black uppercase text-[10px] tracking-widest hover:bg-white rounded-2xl transition-all border border-transparent">Discard</button>
-                                    <button onClick={handleUpdate} className="flex-[2] py-4 bg-blue-600 text-white font-black uppercase text-[10px] tracking-widest rounded-2xl hover:bg-blue-700 shadow-xl transition-all flex items-center justify-center gap-2"><Save size={16} /> Save Specifications</button>
+                                    <button onClick={handleUpdate} className="flex-[2] py-4 bg-blue-600 text-white font-black uppercase text-[10px] tracking-widest rounded-2xl hover:bg-blue-700 shadow-xl transition-all flex items-center justify-center gap-2"><Save size={16} /> Save Edits</button>
                                 </div>
                             </motion.div>
                         </div>

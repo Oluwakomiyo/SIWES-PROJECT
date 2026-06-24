@@ -2,16 +2,17 @@ const sqlite3 = require('sqlite3').verbose();
 const { open } = require('sqlite');
 
 async function setupDatabase() {
+    // Connect to the database file
     const db = await open({
         filename: './database.db',
         driver: sqlite3.Database
     });
 
-    // 1. Core Table
+    // 1. CREATE PROJECTS TABLE
     await db.exec(`
         CREATE TABLE IF NOT EXISTS projects (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
+            name TEXT NOT NULL,
             description TEXT,
             category TEXT,
             location TEXT,
@@ -20,33 +21,53 @@ async function setupDatabase() {
             is_featured INTEGER DEFAULT 0,
             project_manager TEXT,
             project_value TEXT,
-            partner TEXT
+            partner TEXT,
+            tags TEXT -- For our new search feature
         )
     `);
 
-    // Inside server/database.js -> setupDatabase()
+    // 2. CREATE IMAGES TABLE (The missing piece!)
     await db.exec(`
-    CREATE TABLE IF NOT EXISTS activity_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        action_type TEXT NOT NULL, -- 'PROJECT_CREATE', 'PROJECT_DELETE', 'IMAGE_ADD', 'IMAGE_DELETE'
-        project_name TEXT,
-        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-   `);
+        CREATE TABLE IF NOT EXISTS images (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            file_path TEXT NOT NULL,
+            is_cover INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )
+    `);
 
-    // 2. FORCE MIGRATION (In case the table existed before)
-    // We try to add each column one by one. If they exist, it skips.
-    const columns = ['project_manager', 'project_value', 'partner', 'client_name'];
-    for (let col of columns) {
+    // 3. CREATE ACTIVITY LOGS TABLE
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS activity_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            action_type TEXT NOT NULL,
+            project_name TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+
+    // --- MIGRATION LOGIC ---
+    // This part ensures that if your database already exists, 
+    // it adds the new columns without deleting your old data.
+    const newColumns = [
+        { name: 'project_manager', type: 'TEXT' },
+        { name: 'project_value', type: 'TEXT' },
+        { name: 'partner', type: 'TEXT' },
+        { name: 'tags', type: 'TEXT' }
+    ];
+
+    for (const col of newColumns) {
         try {
-            await db.exec(`ALTER TABLE projects ADD COLUMN ${col} TEXT`);
-            console.log(`Added column: ${col}`);
-        } catch (e) {
-            // Column already exists, do nothing
+            await db.exec(`ALTER TABLE projects ADD COLUMN ${col.name} ${col.type}`);
+            console.log(`Migration: Added column ${col.name} to projects.`);
+        } catch (err) {
+            // Error usually means column already exists, which is fine!
         }
     }
 
-    // ... rest of setup ...
+    console.log("Database Schema Verified & Tables Ready ✅");
     return db;
 }
 

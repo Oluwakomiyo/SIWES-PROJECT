@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
     Upload, ArrowLeft, CheckCircle2, Star,
-    Info, Briefcase, User, DollarSign, MapPin, Calendar, FileText
+    Info, Briefcase, User, DollarSign, MapPin, Calendar, FileText, X
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -12,6 +12,8 @@ export default function AddProject() {
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
+    const [tagInput, setTagInput] = useState("");
+    const [tagList, setTagList] = useState([]);
 
     const categories = [
         'Residential', 'Commercial', 'Industrial', 'Healthcare',
@@ -35,14 +37,37 @@ export default function AddProject() {
     const [selectedFiles, setSelectedFiles] = useState([]);
 
     const handleFiles = (files) => {
-        const arr = Array.from(files || [])
-            .filter(file => file.type.startsWith("image/"))
-            .map(file => ({
-                file,
-                preview: URL.createObjectURL(file)
-            }));
+        const incomingFiles = Array.from(files);
 
-        setSelectedFiles(arr);
+        if (incomingFiles.length + selectedFiles.length > 20) {
+            alert('Maximum 20 images allowed');
+            return;
+        }
+
+        const allowedTypes = [
+            "image/jpeg",
+            "image/png",
+            "image/webp"
+        ];
+
+        const validFiles = incomingFiles.filter(file =>
+            allowedTypes.includes(file.type)
+        );
+
+        const invalidFiles = incomingFiles.filter(file =>
+            !allowedTypes.includes(file.type)
+        );
+
+        if (invalidFiles.length > 0) {
+            alert("Only JPG, PNG, and WEBP images are allowed.");
+        }
+
+        const arr = validFiles.map(file => ({
+            file,
+            preview: URL.createObjectURL(file)
+        }));
+
+        setSelectedFiles(prev => [...prev, ...arr]);
     };
 
     useEffect(() => {
@@ -51,39 +76,62 @@ export default function AddProject() {
                 URL.revokeObjectURL(item.preview);
             });
         };
-    }, [selectedFiles]);
+    }, []);
 
     // 2. SUBMIT LOGIC
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
 
-        try {
+        // Before sending:
+            const finalData = {
+                ...formData,
+                tags: tagList.join(", ") // Converts array ['Modern', 'Glass'] to "Modern, Glass"
+            };
+
+        try {            
+
             // STEP 1: Save Project Text Data
             const res = await fetch('http://localhost:5000/api/projects', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData)
+                body: JSON.stringify(finalData)
             });
             const data = await res.json();
+
+            if (!res.ok) {
+                throw new Error(data.message || 'Failed to create project');
+            }
 
             if (data.id) {
                 // STEP 2: Upload Images using the new Project ID
                 if (selectedFiles.length > 0) {
                     const imageFormData = new FormData();
                     for (let i = 0; i < selectedFiles.length; i++) {
-                        imageFormData.append('images', selectedFiles[i]);
+                        imageFormData.append(
+                            'images',
+                            selectedFiles[i].file
+                        );
                     }
 
-                    await fetch(`http://localhost:5000/api/projects/${data.id}/upload`, {
-                        method: 'POST',
-                        body: imageFormData
-                    });
+                    const uploadRes = await fetch(
+                        `http://localhost:5000/api/projects/${data.id}/upload`,
+                        {
+                            method: 'POST',
+                            body: imageFormData
+                        }
+                    );
+
+                    if (!uploadRes.ok) {
+                        throw new Error('Image upload failed');
+                    }
                 }
 
                 setSuccess(true);
                 setTimeout(() => router.push('/'), 2000);
             }
+
+
         } catch (error) {
             console.error("Upload failed", error);
             alert("Something went wrong with the upload!");
@@ -101,6 +149,40 @@ export default function AddProject() {
             </div>
         );
     }
+
+    // 3. REMOVE FILE PREVIEW LOGIC
+    const removeFile = (index) => {
+        setSelectedFiles(prev => {
+            const removed = prev[index];
+
+            if (removed?.preview) {
+                URL.revokeObjectURL(removed.preview);
+            }
+
+            return prev.filter((_, i) => i !== index);
+        });
+    };
+
+    // Helper to handle Enter key
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter' && tagInput.trim()) {
+            e.preventDefault();
+            const tag = tagInput.trim();
+
+            if (
+                !tagList.some(
+                    t => t.toLowerCase() === tag.toLowerCase()
+                )
+            ) {
+                setTagList([...tagList, tag]);
+            }
+            setTagInput("");
+        }
+    };
+
+    const removeTag = (tagToRemove) => {
+        setTagList(tagList.filter(t => t !== tagToRemove));
+    };
 
     return (
         <div className="min-h-screen bg-slate-50 p-6 md:p-12 text-slate-900">
@@ -146,12 +228,12 @@ export default function AddProject() {
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                             <FormGroup label="Project Manager" icon={<User size={14} />}>
-                                <input type="text" placeholder="Manager Name" className="form-input"
+                                <input required type="text" placeholder="Manager Name" className="form-input"
                                     onChange={(e) => setFormData({ ...formData, project_manager: e.target.value })} />
                             </FormGroup>
 
                             <FormGroup label="Project Value" icon={<DollarSign size={14} />}>
-                                <input type="text" placeholder="e.g. $10M" className="form-input"
+                                <input required type="text" placeholder="e.g. 10,000,000" className="form-input"
                                     onChange={(e) => setFormData({ ...formData, project_value: e.target.value })} />
                             </FormGroup>
 
@@ -185,7 +267,7 @@ export default function AddProject() {
                         </div>
 
                         <FormGroup label="Detailed Description">
-                            <textarea rows="3" placeholder="Overview of architectural scope..." className="form-input resize-none"
+                            <textarea required rows="3" placeholder="Overview of architectural scope..." className="form-input resize-none"
                                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}></textarea>
                         </FormGroup>
                     </div>
@@ -203,7 +285,11 @@ export default function AddProject() {
                                 e.preventDefault();
                                 setIsDragging(true);
                             }}
-                            onDragLeave={() => setIsDragging(false)}
+                            onDragLeave={(e) => {
+                                if (!e.currentTarget.contains(e.relatedTarget)) {
+                                    setIsDragging(false);
+                                }
+                            }}
                             onDrop={(e) => {
                                 e.preventDefault();
                                 setIsDragging(false);
@@ -213,10 +299,10 @@ export default function AddProject() {
                             <input
                                 type="file"
                                 multiple
-                                accept="image/*"
+                                accept=".jpg,.jpeg,.png,.webp"
                                 className="hidden"
                                 id="file-upload"
-                                onChange={(e) => handleFiles(e.target.files)}
+                                onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }}
                             />
                             <label htmlFor="file-upload" className="cursor-pointer">
                                 <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform">
@@ -233,17 +319,22 @@ export default function AddProject() {
 
                                         <img
                                             src={item.preview}
+                                            alt={`Preview ${index + 1}`}
+                                            onError={(e) => {
+                                                e.target.src = "/placeholder.jpg";
+                                            }}
                                             className="w-full h-28 object-cover group-hover:scale-105 transition-transform duration-300"
                                         />
+                                        <div className="p-2">
+                                            <p className="text-xs text-slate-600 truncate">
+                                                {item.file.name}
+                                            </p>
+                                        </div>
 
                                         <button
                                             type="button"
-                                            onClick={() =>
-                                                setSelectedFiles(prev =>
-                                                    prev.filter((_, i) => i !== index)
-                                                )
-                                            }
-                                            className="absolute top-2 right-2 bg-red-500 text-white text-xs p-1 rounded-full opacity-0 group-hover:opacity-100"
+                                            onClick={() => removeFile(index)}
+                                            className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center bg-red-500 text-white rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-all"
                                         >
                                             ✕
                                         </button>
@@ -253,16 +344,17 @@ export default function AddProject() {
                             </div>
                         )}
 
-                        <div
+                        <button
+                            type="button"
                             onClick={() =>
                                 setFormData(prev => ({
                                     ...prev,
                                     is_featured: !prev.is_featured
                                 }))
                             }
-                            className={`p-4 rounded-2xl border-2 transition-all cursor-pointer select-none active:scale-[0.99] flex justify-between items-center ${formData?.is_featured
-                                    ? "bg-amber-50 border-amber-500"
-                                    : "bg-slate-50 border-transparent"
+                            className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex justify-between items-center ${formData?.is_featured
+                                ? "bg-amber-50 border-amber-500"
+                                : "bg-slate-50 border-transparent"
                                 }`}
                         >
                             <div className="flex items-center gap-3">
@@ -288,6 +380,29 @@ export default function AddProject() {
                                     className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${formData?.is_featured ? "right-1" : "left-1"
                                         }`}
                                 />
+                            </div>
+                        </button>
+                    </div>
+
+                    {/* SECTION 5: DISCOVERY TAGS */}
+                    <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200">
+                        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Discovery Tags</h3>
+                        <div className="space-y-4">
+                            <input
+                                type="text"
+                                placeholder="Type a tag and press Enter (e.g. Eco-Friendly, Steel, Award)"
+                                value={tagInput}
+                                onChange={(e) => setTagInput(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                className="form-input"
+                            />
+                            <div className="flex flex-wrap gap-2">
+                                {tagList.map(tag => (
+                                    <span key={tag} className="flex items-center gap-2 bg-blue-50 text-blue-600 px-3 py-1.5 rounded-full text-xs font-bold border border-blue-100">
+                                        #{tag}
+                                        <button type="button" onClick={() => removeTag(tag)}><X size={12} /></button>
+                                    </span>
+                                ))}
                             </div>
                         </div>
                     </div>
