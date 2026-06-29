@@ -82,56 +82,46 @@ export default function AddProject() {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
+        const token = localStorage.getItem('token'); // Get the token
 
-        // Before sending:
-            const finalData = {
-                ...formData,
-                tags: tagList.join(", ") // Converts array ['Modern', 'Glass'] to "Modern, Glass"
-            };
+        const finalData = {
+            ...formData,
+            tags: tagList.join(", ")
+        };
 
-        try {            
-
-            // STEP 1: Save Project Text Data
+        try {
             const res = await fetch('http://localhost:5000/api/projects', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}` // Add Header
+                },
                 body: JSON.stringify(finalData)
             });
             const data = await res.json();
 
-            if (!res.ok) {
-                throw new Error(data.message || 'Failed to create project');
-            }
+            if (!res.ok) throw new Error(data.message || 'Failed to create project');
 
-            if (data.id) {
-                // STEP 2: Upload Images using the new Project ID
-                if (selectedFiles.length > 0) {
-                    const imageFormData = new FormData();
-                    for (let i = 0; i < selectedFiles.length; i++) {
-                        imageFormData.append(
-                            'images',
-                            selectedFiles[i].file
-                        );
-                    }
-
-                    const uploadRes = await fetch(
-                        `http://localhost:5000/api/projects/${data.id}/upload`,
-                        {
-                            method: 'POST',
-                            body: imageFormData
-                        }
-                    );
-
-                    if (!uploadRes.ok) {
-                        throw new Error('Image upload failed');
-                    }
+            if (data.id && selectedFiles.length > 0) {
+                const imageFormData = new FormData();
+                for (let i = 0; i < selectedFiles.length; i++) {
+                    imageFormData.append('images', selectedFiles[i].file);
                 }
 
-                setSuccess(true);
-                setTimeout(() => router.push('/'), 2000);
+                const uploadRes = await fetch(
+                    `http://localhost:5000/api/projects/${data.id}/upload`,
+                    {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${token}` }, // Add Header
+                        body: imageFormData
+                    }
+                );
+
+                if (!uploadRes.ok) throw new Error('Image upload failed');
             }
 
-
+            setSuccess(true);
+            setTimeout(() => router.push('/'), 2000);
         } catch (error) {
             console.error("Upload failed", error);
             alert("Something went wrong with the upload!");
@@ -145,7 +135,7 @@ export default function AddProject() {
             <div className="min-h-screen flex flex-col items-center justify-center bg-white text-slate-900">
                 <CheckCircle2 className="w-20 h-20 text-green-500 mb-4 animate-bounce" />
                 <h1 className="text-4xl font-black tracking-tighter">Project Published</h1>
-                <p className="text-slate-500 mt-2 text-lg">Returning to repository...</p>
+                <p className="text-slate-500 mt-2 text-lg">Opening project details...</p>
             </div>
         );
     }
@@ -182,6 +172,15 @@ export default function AddProject() {
 
     const removeTag = (tagToRemove) => {
         setTagList(tagList.filter(t => t !== tagToRemove));
+    };
+
+    const handleProjectValueChange = (e) => {
+        const raw = e.target.value.replace(/\D/g, ""); // Remove everything except digits
+
+        setFormData({
+            ...formData,
+            project_value: raw
+        });
     };
 
     return (
@@ -233,8 +232,18 @@ export default function AddProject() {
                             </FormGroup>
 
                             <FormGroup label="Project Value" icon={<DollarSign size={14} />}>
-                                <input required type="text" placeholder="e.g. 10,000,000" className="form-input"
-                                    onChange={(e) => setFormData({ ...formData, project_value: e.target.value })} />
+                                <input
+                                    required
+                                    type="text"
+                                    placeholder="e.g. 10,000,000"
+                                    className="form-input"
+                                    value={
+                                        formData.project_value
+                                            ? Number(formData.project_value).toLocaleString()
+                                            : ""
+                                    }
+                                    onChange={handleProjectValueChange}
+                                />
                             </FormGroup>
 
                             <FormGroup label="Client Name">

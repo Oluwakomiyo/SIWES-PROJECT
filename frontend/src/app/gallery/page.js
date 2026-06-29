@@ -18,6 +18,12 @@ function GalleryContent() {
     const [selectedYear, setSelectedYear] = useState("All Years");
     const [isFeaturedOnly, setIsFeaturedOnly] = useState(false);
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const [isAdmin, setIsAdmin] = useState(false);
+
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        setIsAdmin(!!token); // Set to true if token exists
+    }, []);
 
     useEffect(() => {
         fetch('http://localhost:5000/api/projects')
@@ -59,6 +65,24 @@ function GalleryContent() {
             });
         }
 
+        if (selectedCategory !== "All Categories") {
+            result = result.filter(p => p.category === selectedCategory);
+        }
+
+        // --- C. YEAR DROPDOWN ---
+        if (selectedYear !== "All Years") {
+            result = result.filter(p => {
+                if (!p.completion_date) return false;
+                const year = new Date(p.completion_date).getFullYear().toString();
+                return year === selectedYear;
+            });
+        }
+
+        // --- D. FEATURED STATUS TOGGLE ---
+        if (isFeaturedOnly) {
+            result = result.filter(p => p.is_featured === 1);
+        }
+
         // ... (Keep your Category, Year, and Featured filters below this)
         setFilteredProjects(result);
     }, [searchQuery, selectedCategory, selectedYear, isFeaturedOnly, projects]);
@@ -70,10 +94,15 @@ function GalleryContent() {
             return;
         }
 
+        const token = localStorage.getItem('token');
+
         try {
             // 2. Call the backend API
             const res = await fetch(`http://localhost:5000/api/projects/${id}`, {
                 method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}` // <--- ADD TOKEN
+                }
             });
 
             if (res.ok) {
@@ -88,8 +117,7 @@ function GalleryContent() {
             alert("Failed to connect to the server.");
         }
     };
-    // ----------------------------------------------
-
+    
     return (
         <div className="min-h-screen bg-slate-50 p-4 md:p-8 text-slate-900">
             <div className="max-w-7xl mx-auto">
@@ -172,13 +200,15 @@ function GalleryContent() {
                                 </div>
                             )}
 
-                            <button
-                                onClick={() => deleteProject(project.id)}
-                                className="absolute top-3 right-3 z-30 p-2 bg-red-600 text-white rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-all duration-300 transform hover:scale-110"
-                                title="Delete Project"
-                            >
-                                <Trash2 size={16} />
-                            </button>
+                            {isAdmin && (
+                                <button
+                                    onClick={() => deleteProject(project.id)}
+                                    className="absolute top-3 right-3 z-30 p-2 bg-red-600 text-white rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-all duration-300 transform hover:scale-110"
+                                    title="Delete Project"
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+                            )}
 
                             <Link href={`/project/${project.id}`}>
                                 <div className="relative aspect-[16/10] overflow-hidden cursor-pointer">

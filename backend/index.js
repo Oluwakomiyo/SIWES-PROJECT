@@ -5,6 +5,9 @@ const path = require('path');
 const fs = require('fs');
 const sharp = require('sharp');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const JWT_SECRET = 'your_company_secret_key_123'; // Keep this private
 const setupDatabase = require('./database');
 
 const app = express();
@@ -25,6 +28,33 @@ const upload = multer({ dest: tempDir });
 
 // Initialize Database and Start Server
 setupDatabase().then((db) => {
+    const isAdmin = (req, res, next) => {
+        const token = req.headers['authorization'];
+        if (!token) return res.status(401).json({ error: "Access Denied. No token provided." });
+
+        try {
+            const verified = jwt.verify(token.split(" ")[1], JWT_SECRET);
+            req.user = verified;
+            next(); // Token is valid, proceed to the route
+        } catch (err) {
+            res.status(400).json({ error: "Invalid Token" });
+        }
+    };
+
+    app.post('/api/auth/login', async (req, res) => {
+        const { username, password } = req.body;
+        try {
+            const user = await db.get('SELECT * FROM users WHERE username = ?', [username]);
+            if (!user) return res.status(400).json({ error: "User not found" });
+
+            const validPass = await bcrypt.compare(password, user.password_hash);
+            if (!validPass) return res.status(400).json({ error: "Invalid password" });
+
+            const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
+            res.json({ token, role: user.role });
+        } catch (err) { res.status(500).json({ error: err.message }); }
+    });
+
     const logActivity = async (action, name) => {
         await db.run(
             'INSERT INTO activity_logs (action_type, project_name) VALUES (?, ?)',
@@ -33,7 +63,7 @@ setupDatabase().then((db) => {
     };
 
     // 1. Route to create a new project
-    app.post('/api/projects', async (req, res) => {
+    app.post('/api/projects', isAdmin, async (req, res) => {
         // Destructure every field from the frontend request
         const {
             name, description, category, location, client_name,
@@ -63,7 +93,7 @@ setupDatabase().then((db) => {
     });
 
     // Route to update project details
-    app.put('/api/projects/:id', async (req, res) => {
+    app.put('/api/projects/:id', isAdmin, async (req, res) => {
         const {
             name, description, category, location, client_name,
             completion_date, is_featured, project_manager,
@@ -92,7 +122,7 @@ setupDatabase().then((db) => {
     });
 
     // 2. Route to upload and optimize images for a project
-    app.post('/api/projects/:id/upload', upload.array('images', 20), async (req, res) => {
+    app.post('/api/projects/:id/upload', isAdmin, upload.array('images', 20), async (req, res) => {
         const projectId = req.params.id;
         const files = req.files;
 
@@ -173,7 +203,7 @@ setupDatabase().then((db) => {
     });
 
     // Route to delete a single image
-    app.delete('/api/images/:id', async (req, res) => {
+    app.delete('/api/images/:id', isAdmin, async (req, res) => {
         const imageId = req.params.id;
 
         try {
@@ -254,7 +284,7 @@ setupDatabase().then((db) => {
     });
 
     // Route to delete a project and all its images
-    app.delete('/api/projects/:id', async (req, res) => {
+    app.delete('/api/projects/:id', isAdmin, async (req, res) => {
         const projectId = req.params.id;
 
         try {

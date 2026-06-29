@@ -4,6 +4,12 @@ import { Database, Image as ImageIcon, Folders, Star, Clock, Plus } from 'lucide
 import Link from 'next/link';
 
 export default function Home() {
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    setIsAdmin(!!token); // Set to true if token exists
+  }, []);
   const [stats, setStats] = useState({
     projects: 0,
     assets: 0,
@@ -22,13 +28,16 @@ export default function Home() {
   };
 
   useEffect(() => {
-    fetch('http://localhost:5000/api/stats')
+    const token = localStorage.getItem('token');
+
+    // Optional: If not logged in, you could redirect them to the gallery
+    // if (!token) { router.push('/gallery'); return; }
+
+    fetch('http://localhost:5000/api/stats', {
+      headers: { 'Authorization': `Bearer ${token}` } // Send token to backend
+    })
       .then(res => res.json())
-      .then(data => {
-        setStats(data);
-        setLoading(false);
-      })
-      .catch(err => console.error("Stats fetch error:", err));
+      .then(data => { setStats(data); setLoading(false); });
   }, []);
 
   if (loading) return <div className="p-10 animate-pulse text-slate-400">Loading Dashboard...</div>;
@@ -72,14 +81,16 @@ export default function Home() {
         </Link>
 
         {/* Card 4: Storage Used */}
-        <div className="flex flex-col h-full">
-          <StatCard
-            icon={<Database className="text-emerald-600" />}
-            label="Storage Used"
-            value={stats.storage}
-            color="bg-emerald-50"
-          />
-        </div>
+        {isAdmin && (
+          <div className="flex flex-col h-full">
+            <StatCard
+              icon={<Database className="text-emerald-600" />}
+              label="Storage Used"
+              value={stats.storage}
+              color="bg-emerald-50"
+            />
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">

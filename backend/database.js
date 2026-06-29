@@ -38,6 +38,14 @@ async function setupDatabase() {
         )
     `);
 
+    const adminExists = await db.get('SELECT * FROM users WHERE username = "admin"');
+    if (!adminExists) {
+        const bcrypt = require('bcryptjs');
+        const hash = await bcrypt.hash('admin123', 10); // Default password: admin123
+        await db.run('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)', ['admin', hash, 'admin']);
+        console.log("Seed: Created default admin user (admin / admin123) ✅");
+    }
+
     // 3. CREATE ACTIVITY LOGS TABLE
     await db.exec(`
         CREATE TABLE IF NOT EXISTS activity_logs (

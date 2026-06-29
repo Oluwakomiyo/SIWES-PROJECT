@@ -3,7 +3,7 @@ import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { Inter } from 'next/font/google';
 import './globals.css';
-import { LayoutDashboard, Image as ImageIcon, PlayCircle, PlusSquare } from 'lucide-react';
+import { LayoutDashboard, Image as ImageIcon, PlayCircle, PlusSquare, Lock as LockIcon, LogOut } from 'lucide-react';
 import Link from 'next/link';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -13,6 +13,12 @@ export default function RootLayout({ children }) {
   const pathname = usePathname();
   const isSlideshow = pathname === '/slideshow';
   const [isOnline, setIsOnline] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    setIsAdmin(!!token); // Set to true if token exists
+  }, [pathname]); // Re-check whenever user navigates
 
   useEffect(() => {
     const checkStatus = async () => {
@@ -30,6 +36,12 @@ export default function RootLayout({ children }) {
     return () => clearInterval(interval);
   }, []);
 
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    setIsAdmin(false);
+    window.location.href = "/"; // Send back to dashboard
+  };
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className} suppressHydrationWarning>
@@ -46,11 +58,30 @@ export default function RootLayout({ children }) {
             <nav className="flex-1 px-4 space-y-2 mt-4">
               <SidebarItem icon={<LayoutDashboard size={20} />} label="Dashboard" href="/" />
               <SidebarItem icon={<ImageIcon size={20} />} label="Project Gallery" href="/gallery" />
-              <SidebarItem icon={<PlusSquare size={20} />} label="Add Project" href="/add-project" />
+              {isAdmin && (
+                <SidebarItem icon={<PlusSquare size={20} />} label="Add Project" href="/add-project" />
+              )}
               <SidebarItem icon={<PlayCircle size={20} />} label="Slideshow" href="/slideshow" />
             </nav>
 
-            <div className="p-6 border-t border-slate-800">
+            <div className="p-6 border-t border-slate-800 space-y-4">
+              <div className="px-2">
+                {isAdmin ? (
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center gap-2 text-red-400 hover:text-red-300 font-bold text-[10px] uppercase tracking-widest transition-colors"
+                  >
+                    <LogOut size={14} /> Logout Admin
+                  </button>
+                ) : (
+                  <Link
+                    href="/login"
+                    className="flex items-center gap-2 text-slate-500 hover:text-blue-400 font-bold text-[10px] uppercase tracking-widest transition-colors"
+                  >
+                    <LockIcon size={14} /> Admin Login
+                  </Link>
+                )}
+              </div>
               <div className={`rounded-xl p-4 transition-colors ${isOnline ? 'bg-slate-800/50' : 'bg-red-900/20'}`}>
                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">System Status</p>
                 <div className="flex items-center gap-2 mt-2">
@@ -74,9 +105,19 @@ export default function RootLayout({ children }) {
 }
 
 function SidebarItem({ icon, label, href }) {
+  const pathname = usePathname();
+  const isActive = pathname === href;
+
   return (
-    <Link href={href} className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-800 hover:text-white transition-all group">
-      <span className="text-slate-500 group-hover:text-blue-400 transition-colors">{icon}</span>
+    <Link 
+      href={href} 
+      className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all group ${
+        isActive ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'hover:bg-slate-800 hover:text-white'
+      }`}
+    >
+      <span className={`${isActive ? 'text-white' : 'text-slate-500 group-hover:text-blue-400'} transition-colors`}>
+        {icon}
+      </span>
       <span className="font-medium text-sm">{label}</span>
     </Link>
   );

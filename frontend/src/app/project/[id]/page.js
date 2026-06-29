@@ -24,17 +24,27 @@ export default function ProjectDetails() {
     const [editTagInput, setEditTagInput] = useState("");
     const [editTagList, setEditTagList] = useState([]);
     const [saving, setSaving] = useState(false);
+    const [isAdmin, setIsAdmin] = useState(false);
 
     // 2. FETCH DATA ONCE
     useEffect(() => {
+        const token = localStorage.getItem('token');
+        setIsAdmin(!!token);
+
         const fetchProject = async () => {
             try {
                 const res = await fetch(`http://localhost:5000/api/projects/${id}`);
                 const data = await res.json();
                 setProject(data);
-                // Pre-fill the edit form so it is ready instantly
 
-                setEditData({ ...data, is_featured: data.is_featured === 1 });
+                // Pre-fill the edit form
+                setEditData({
+                    ...data,
+                    is_featured: data.is_featured === 1,
+                    // Ensure we use the correct key from DB
+                    client_partner: data.client_partner || data.partner
+                });
+
                 if (data.tags) {
                     setEditTagList(data.tags.split(',').map(t => t.trim()).filter(t => t !== ""));
                 } else {
@@ -42,7 +52,10 @@ export default function ProjectDetails() {
                 }
 
                 setLoading(false);
-            } catch (err) { console.error(err); setLoading(false); }
+            } catch (err) {
+                console.error("Fetch error:", err);
+                setLoading(false);
+            }
         };
         fetchProject();
     }, [id]);
@@ -65,9 +78,15 @@ export default function ProjectDetails() {
     // 3. SAVE EDITS FUNCTION
     const handleUpdate = async (e) => {
         if (e) e.preventDefault();
-        setSaving(true);
+        
+        const token = localStorage.getItem('token');
+        if (!token) {
+            alert("Admin session required. Please login.");
+            router.push('/login');
+            return;
+        }
 
-        // Merge the tag list into the data we are sending
+        setSaving(true);
         const dataWithTags = {
             ...editData,
             tags: editTagList.join(', ')
@@ -76,36 +95,87 @@ export default function ProjectDetails() {
         try {
             const res = await fetch(`http://localhost:5000/api/projects/${id}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json', 
+                    'Authorization': `Bearer ${token}` 
+                },
                 body: JSON.stringify(dataWithTags)
             });
+
             if (res.ok) {
                 setProject({ ...project, ...dataWithTags, is_featured: editData.is_featured ? 1 : 0 });
                 setIsEditing(false);
+            } else {
+                const errData = await res.json();
+                alert(errData.error || "Session expired. Please login again.");
+                if (res.status === 401 || res.status === 403) router.push('/login');
             }
-        } catch (error) { alert("Update failed"); }
-        setSaving(false);
+        } catch (error) { 
+            alert("Server connection failed."); 
+        } finally {
+            setSaving(false);
+        }
     };
 
     // 4. MEDIA FUNCTIONS (Upload/Delete)
     const handleAddMedia = async () => {
+        const token = localStorage.getItem('token');
+        if (!token) return alert("Please login first.");
+        
         setUploading(true);
         const fd = new FormData();
         for (let f of newFiles) fd.append('images', f);
-        await fetch(`http://localhost:5000/api/projects/${id}/upload`, { method: 'POST', body: fd });
-        const res = await fetch(`http://localhost:5000/api/projects/${id}`);
-        setProject(await res.json());
-        setNewFiles([]); setShowUpload(false); setUploading(false);
+
+        try {
+            const res = await fetch(`http://localhost:5000/api/projects/${id}/upload`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }, // Token required here too
+                body: fd
+            });
+
+            if (res.ok) {
+                const refresh = await fetch(`http://localhost:5000/api/projects/${id}`);
+                setProject(await refresh.json());
+                setNewFiles([]); 
+                setShowUpload(false);
+            } else {
+                alert("Upload unauthorized. Please login.");
+            }
+        } catch (e) {
+            alert("Upload failed.");
+        } finally {
+            setUploading(false);
+        }
     };
 
     const deleteImage = async (e, imageId) => {
         e.stopPropagation();
         if (!confirm("Delete this image?")) return;
-        await fetch(`http://localhost:5000/api/images/${imageId}`, { method: 'DELETE' });
-        setProject({ ...project, images: project.images.filter(img => img.id !== imageId) });
+        
+        const token = localStorage.getItem('token');
+        if (!token) {
+            alert("Admin login required.");
+            router.push('/login');
+            return;
+        }
+
+        try {
+            const res = await fetch(`http://localhost:5000/api/images/${imageId}`, { 
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` } // FIXED: Added missing header
+            });
+
+            if (res.ok) {
+                setProject({ ...project, images: project.images.filter(img => img.id !== imageId) });
+            } else {
+                alert("Unauthorized action.");
+            }
+        } catch (err) {
+            alert("Error communicating with server.");
+        }
     };
 
-    if (loading) return <div className="p-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-[0.3em]">Loading...</div>;
+    if (loading) return <div className="p-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-[0.3em]">Loading Asset Hub...</div>;
     if (!project) return <div className="p-20 text-center">Project not found</div>;
 
     return (
@@ -119,13 +189,15 @@ export default function ProjectDetails() {
                     </Link>
                     <div className="flex gap-3">
                         {/* THE BUTTON THAT OPENS THE POPUP (No Reloads) */}
-                        <button
-                            type="button"
-                            onClick={() => setIsEditing(true)}
-                            className="bg-white text-slate-600 px-6 py-3 rounded-xl font-bold flex items-center gap-2 border border-slate-200 hover:bg-slate-50 transition-all text-sm shadow-sm"
-                        >
-                            <Edit3 size={18} /> Edit Details
-                        </button>
+                        {isAdmin && (
+                            <button
+                                type="button"
+                                onClick={() => setIsEditing(true)}
+                                className="bg-white text-slate-600 px-6 py-3 rounded-xl font-bold flex items-center gap-2 border border-slate-200 hover:bg-slate-50 transition-all text-sm shadow-sm"
+                            >
+                                <Edit3 size={18} /> Edit Details
+                            </button>
+                        )}
                         <Link href={`/slideshow?projectId=${id}`} className="bg-blue-600 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-3 hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all text-sm">
                             <Play size={18} fill="currentColor" /> Play Slideshow
                         </Link>
@@ -145,8 +217,17 @@ export default function ProjectDetails() {
 
                     <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-slate-100 border-b border-slate-100">
                         <InfoBox icon={<User size={14} />} label="Project Manager" value={project.project_manager} />
-                        <InfoBox icon={<DollarSign size={14} />} label="Project Value" value={project.project_value ? `$${project.project_value}`
-                            : "---"} color="text-blue-600" />
+                        <InfoBox
+                            icon={<DollarSign size={14} />}
+                            label="Project Value"
+                            value={
+                                project.project_value &&
+                                    !isNaN(Number(project.project_value))
+                                    ? `$${Number(project.project_value).toLocaleString()}`
+                                    : "---"
+                            }
+                            color="text-blue-600"
+                        />
                         <InfoBox icon={<Briefcase size={14} />} label="Client Name" value={project.client_name} />
                         <InfoBox icon={<Landmark size={14} />} label="Partner" value={project.partner} />
                     </div>
@@ -182,7 +263,9 @@ export default function ProjectDetails() {
                 <div className="mb-20">
                     <div className="flex justify-between items-end mb-8">
                         <h2 className="text-2xl font-extrabold tracking-tight text-slate-900">Media Assets <span className="text-sm font-bold bg-blue-50 px-3 py-1 rounded-full text-blue-600 ml-2">{project.images?.length || 0} assets</span></h2>
-                        <button onClick={() => setShowUpload(!showUpload)} className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all ${showUpload ? 'bg-slate-200 text-slate-600' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>{showUpload ? <X size={16} /> : <Plus size={16} />} {showUpload ? 'Cancel' : 'Add Media'}</button>
+                        {isAdmin && (
+                            <button onClick={() => setShowUpload(!showUpload)} className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all ${showUpload ? 'bg-slate-200 text-slate-600' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>{showUpload ? <X size={16} /> : <Plus size={16} />} {showUpload ? 'Cancel' : 'Add Media'}</button>
+                        )}
                     </div>
 
                     {showUpload && (
@@ -196,9 +279,11 @@ export default function ProjectDetails() {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                         {project.images?.map(img => (
-                            <div key={img.id} onClick={() => setSelectedImage(img.file_path)} className="group bg-white rounded-xl overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-all relative">
+                            <div key={img.id} onClick={() => setSelectedImage(img.file_path)} className="group h-40 bg-white rounded-xl overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-all relative">
                                 <img src={`http://localhost:5000/uploads/thumb_${img.file_path}`} className="w-full h-full object-cover group-hover:scale-110 transition-all duration-1000" />
-                                <button onClick={(e) => deleteImage(e, img.id)} className="absolute top-3 right-3 z-30 p-2 bg-red-600 text-white rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-all duration-300 transform hover:scale-110"><Trash2 size={18} /></button>
+                                {isAdmin && (
+                                    <button onClick={(e) => deleteImage(e, img.id)} className="absolute top-3 right-3 z-30 p-2 bg-red-600 text-white rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-all duration-300 transform hover:scale-110"><Trash2 size={18} /></button>
+                                )}
                             </div>
                         ))}
                     </div>
@@ -228,7 +313,22 @@ export default function ProjectDetails() {
                                     </div>
                                     <div className="grid grid-cols-2 gap-6">
                                         <EditField label="Manager" value={editData?.project_manager} onChange={v => setEditData({ ...editData, project_manager: v })} />
-                                        <EditField label="Value" value={editData?.project_value} onChange={v => setEditData({ ...editData, project_value: v })} />
+                                        <EditField
+                                            label="Value"
+                                            value={
+                                                editData?.project_value
+                                                    ? Number(editData.project_value).toLocaleString()
+                                                    : ""
+                                            }
+                                            onChange={(v) => {
+                                                const rawValue = v.replace(/\D/g, "");
+
+                                                setEditData({
+                                                    ...editData,
+                                                    project_value: rawValue,
+                                                });
+                                            }}
+                                        />
                                         <EditField label="Location" value={editData?.location} onChange={v => setEditData({ ...editData, location: v })} />
                                         <EditField label="Completion Date" type="date" value={editData?.completion_date} onChange={v => setEditData({ ...editData, completion_date: v })} />
                                     </div>
@@ -277,7 +377,24 @@ export default function ProjectDetails() {
                                 </form>
                                 <div className="p-8 border-t bg-slate-50 flex gap-4">
                                     <button type="button" onClick={() => setIsEditing(false)} className="flex-1 py-4 text-slate-500 font-black uppercase text-[10px] tracking-widest hover:bg-white rounded-2xl transition-all border border-transparent">Discard</button>
-                                    <button onClick={handleUpdate} className="flex-[2] py-4 bg-blue-600 text-white font-black uppercase text-[10px] tracking-widest rounded-2xl hover:bg-blue-700 shadow-xl transition-all flex items-center justify-center gap-2"><Save size={16} /> Save Edits</button>
+                                    <button
+                                        type="submit" // Changed to submit
+                                        disabled={saving}
+                                        onClick={handleUpdate} // Explicitly call handleUpdate
+                                        className="flex-[2] py-4 bg-blue-600 text-white font-black uppercase text-[10px] tracking-widest rounded-2xl hover:bg-blue-700 shadow-xl shadow-blue-200 active:scale-95 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        {saving ? (
+                                            <>
+                                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                                Saving Specs...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Save size={16} />
+                                                Save Edits
+                                            </>
+                                        )}
+                                    </button>
                                 </div>
                             </motion.div>
                         </div>
