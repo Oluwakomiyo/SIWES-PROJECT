@@ -406,6 +406,14 @@ FROM projects p
                 });
             }
 
+            const logs = await db.all(`SELECT * FROM activity_logs ORDER BY id DESC LIMIT 8`);
+
+            const highlights = await db.all(`
+            SELECT p.id, p.name, p.category, p.location,
+            (SELECT file_path FROM images WHERE project_id = p.id ORDER BY id ASC LIMIT 1) as thumbnail
+            FROM projects p ORDER BY p.id DESC LIMIT 3
+        `);
+
             // Convert bytes to Megabytes for display
             const storageMB = (totalSizeBytes / (1024 * 1024)).toFixed(2);
 
@@ -421,7 +429,8 @@ FROM projects p
                 assets: assetCount.count,
                 featured: featuredCount.count,
                 storage: `${storageMB} MB`,
-                activity: recentActivity
+                activity: recentActivity,
+                highlights: highlights
             });
         } catch (err) {
             res.status(500).json({ error: err.message });

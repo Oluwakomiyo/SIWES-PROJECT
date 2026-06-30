@@ -1,6 +1,6 @@
 "use client";
-import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useState, Suspense } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     ArrowLeft, Trash2, Calendar, MapPin, Play, Star, X,
@@ -11,6 +11,13 @@ import Link from 'next/link';
 export default function ProjectDetails() {
     const { id } = useParams();
     const router = useRouter();
+
+    const searchParams = useSearchParams();
+
+    // NEW: Check where the user came from
+    const from = searchParams.get('from');
+    const backPath = from === 'dashboard' ? '/' : '/gallery';
+    const backLabel = from === 'dashboard' ? 'Back to Dashboard' : 'Back to Repository';
 
     // 1. ALL DATA STATES
     const [project, setProject] = useState(null);
@@ -78,7 +85,7 @@ export default function ProjectDetails() {
     // 3. SAVE EDITS FUNCTION
     const handleUpdate = async (e) => {
         if (e) e.preventDefault();
-        
+
         const token = localStorage.getItem('token');
         if (!token) {
             alert("Admin session required. Please login.");
@@ -95,9 +102,9 @@ export default function ProjectDetails() {
         try {
             const res = await fetch(`http://localhost:5000/api/projects/${id}`, {
                 method: 'PUT',
-                headers: { 
-                    'Content-Type': 'application/json', 
-                    'Authorization': `Bearer ${token}` 
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify(dataWithTags)
             });
@@ -110,8 +117,8 @@ export default function ProjectDetails() {
                 alert(errData.error || "Session expired. Please login again.");
                 if (res.status === 401 || res.status === 403) router.push('/login');
             }
-        } catch (error) { 
-            alert("Server connection failed."); 
+        } catch (error) {
+            alert("Server connection failed.");
         } finally {
             setSaving(false);
         }
@@ -121,7 +128,7 @@ export default function ProjectDetails() {
     const handleAddMedia = async () => {
         const token = localStorage.getItem('token');
         if (!token) return alert("Please login first.");
-        
+
         setUploading(true);
         const fd = new FormData();
         for (let f of newFiles) fd.append('images', f);
@@ -136,7 +143,7 @@ export default function ProjectDetails() {
             if (res.ok) {
                 const refresh = await fetch(`http://localhost:5000/api/projects/${id}`);
                 setProject(await refresh.json());
-                setNewFiles([]); 
+                setNewFiles([]);
                 setShowUpload(false);
             } else {
                 alert("Upload unauthorized. Please login.");
@@ -151,7 +158,7 @@ export default function ProjectDetails() {
     const deleteImage = async (e, imageId) => {
         e.stopPropagation();
         if (!confirm("Delete this image?")) return;
-        
+
         const token = localStorage.getItem('token');
         if (!token) {
             alert("Admin login required.");
@@ -160,7 +167,7 @@ export default function ProjectDetails() {
         }
 
         try {
-            const res = await fetch(`http://localhost:5000/api/images/${imageId}`, { 
+            const res = await fetch(`http://localhost:5000/api/images/${imageId}`, {
                 method: 'DELETE',
                 headers: { 'Authorization': `Bearer ${token}` } // FIXED: Added missing header
             });
@@ -184,8 +191,8 @@ export default function ProjectDetails() {
 
                 {/* TOP NAVIGATION */}
                 <div className="flex justify-between items-center mb-8">
-                    <Link href="/gallery" className="flex items-center text-blue-600 hover:underline font-bold text-xs uppercase tracking-widest">
-                        <ArrowLeft className="w-4 h-4 mr-2" /> Back
+                    <Link href={backPath} className="flex items-center text-blue-600 hover:underline font-bold text-xs uppercase tracking-widest">
+                        <ArrowLeft className="w-4 h-4 mr-2" /> {backLabel}
                     </Link>
                     <div className="flex gap-3">
                         {/* THE BUTTON THAT OPENS THE POPUP (No Reloads) */}

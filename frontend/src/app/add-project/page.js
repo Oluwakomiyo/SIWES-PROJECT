@@ -121,7 +121,7 @@ export default function AddProject() {
             }
 
             setSuccess(true);
-            setTimeout(() => router.push('/'), 2000);
+            setTimeout(() => router.push(`/project/${data.id}`), 2000);
         } catch (error) {
             console.error("Upload failed", error);
             alert("Something went wrong with the upload!");
@@ -361,34 +361,38 @@ export default function AddProject() {
                                     is_featured: !prev.is_featured
                                 }))
                             }
-                            className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex justify-between items-center ${formData?.is_featured
+                            className={`w-full p-4 rounded-2xl border-2 transition-all cursor-pointer flex items-center ${formData?.is_featured
                                 ? "bg-amber-50 border-amber-500"
                                 : "bg-slate-50 border-transparent"
                                 }`}
                         >
-                            <div className="flex items-center gap-3">
-                                <Star
-                                    size={20}
-                                    fill={formData?.is_featured ? "#f59e0b" : "none"}
-                                    className={
-                                        formData?.is_featured ? "text-amber-500" : "text-slate-400"
-                                    }
-                                />
+                            <div className="w-full flex items-center justify-between ">
+                                <div className="flex items-center gap-3">
+                                    <Star
+                                        size={20}
+                                        fill={formData?.is_featured ? "#f59e0b" : "none"}
+                                        className={
+                                            formData?.is_featured ? "text-amber-500" : "text-slate-400"
+                                        }
+                                    />
 
-                                <span className="text-sm font-bold text-amber-900">
-                                    Featured Status
-                                </span>
-                            </div>
+                                    <span className="text-sm font-bold text-amber-900">
+                                        Featured Status
+                                    </span>
+                                </div>
 
-                            {/* toggle switch */}
-                            <div
-                                className={`w-10 h-5 rounded-full relative transition-colors ${formData?.is_featured ? "bg-amber-500" : "bg-slate-300"
-                                    }`}
-                            >
+
+
+                                {/* toggle switch */}
                                 <div
-                                    className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${formData?.is_featured ? "right-1" : "left-1"
+                                    className={`w-10 h-5 rounded-full relative transition-colors ${formData?.is_featured ? "bg-amber-500" : "bg-slate-300"
                                         }`}
-                                />
+                                >
+                                    <div
+                                        className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${formData?.is_featured ? "right-1" : "left-1"
+                                            }`}
+                                    />
+                                </div>
                             </div>
                         </button>
                     </div>
